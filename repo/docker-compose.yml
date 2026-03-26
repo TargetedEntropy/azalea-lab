@@ -1,0 +1,12 @@
+services:
+  mc-server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    image: azalea-mc-neoforge:1.21.1
+    container_name: azalea-mc-server
+    ports:
+      - "25566:25565"
+    stdin_open: true
+    tty: true
+    restart: unless-stopped

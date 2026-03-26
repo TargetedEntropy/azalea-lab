@@ -1,0 +1,19 @@
+services:
+  mc-server:
+    build:
+      context: .
+      args:
+        NEOFORGE_VERSION: ${NEOFORGE_VERSION:-21.1.219}
+    image: azalea-mc-neoforge:1.21.1
+    container_name: azalea-mc-server
+    ports:
+      - "${MC_PORT:-25566}:25565"
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+    volumes:
+      # Persist world data across container restarts
+      - world-data:/server/world
+
+volumes:
+  world-data:

@@ -1,0 +1,34 @@
+# Modpack archives
+*.zip
+
+# Build logs
+build_log.txt
+
+# Upstream azalea reference (clone from https://github.com/azalea-rs/azalea)
+azalea/
+
+# Rust build artifacts
+target/
+
+# Extracted modpack (rebuilt by server-deploy/build.sh)
+repo/server/DynamicOdyssey-Server-2.7.0/
+
+# Assembled server pack (rebuilt by server-deploy/build.sh)
+server-deploy/pack/
+
+# Java build artifacts
+*.class
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Docker
+docker-compose.override.yml

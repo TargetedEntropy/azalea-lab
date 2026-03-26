@@ -1,0 +1,7 @@
+Manifest-Version: 1.0
+Specification-Title: CheckPacket Coremod
+Specification-Version: 1.0.0
+Specification-Vendor: Azalea Bot
+Implementation-Title: CheckPacket Coremod
+Implementation-Version: 1.0.0
+Implementation-Vendor: Azalea Bot
