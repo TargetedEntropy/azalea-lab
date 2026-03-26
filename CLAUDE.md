@@ -195,6 +195,44 @@ docker compose down -v
 
 ---
 
+## Instructions for Agentic Bots
+
+This section is for AI agents (OpenClaw, Claude Code, etc.) that are asked to
+work on or operate this project.
+
+### What you CAN do
+
+- **Build the bot**: `cd server-deploy/bot && cargo build --release`
+- **Run the bot**: `cd server-deploy && ./run_bot.sh` (or run the binary directly)
+- **Edit bot source code**: anything under `server-deploy/bot/src/`
+- **Send commands to the running bot** via its HTTP API:
+  ```bash
+  curl -X POST http://localhost:3001/actions \
+    -H 'Content-Type: application/json' \
+    -d '{"action":"chat","message":"Hello!"}'
+  ```
+- **Check bot health**: `curl http://localhost:3001/health`
+- **Read server logs** (read-only): `docker logs azalea-mc-server`
+- **Update bot configuration** via environment variables (see Environment Variables table)
+
+### What you MUST NOT do
+
+- **Do NOT start, stop, restart, or rebuild the Minecraft server.**
+  The server is managed by a human operator and is assumed to be already running.
+  Never run `docker compose up`, `docker compose down`, `docker compose build`,
+  or any Docker commands that modify the server container state.
+- **Do NOT modify server configuration** (`server.properties`, `log4j2.xml`,
+  the Dockerfile, `docker-compose.yml`, or anything in `pack/` or `patches/`).
+- **Do NOT run `build.sh`** — modpack extraction is a human operator task.
+
+### Assumptions
+
+- The Minecraft server is already running and reachable at `MC_HOST:MC_PORT`
+- The bot binary is pre-built or can be built with `cargo build --release`
+- OpenClaw is running separately and configured with the bot's HTTP endpoint
+
+---
+
 ## The Three Server Patches (Why They're Needed)
 
 NeoForge 21.1.219 has three layers of validation that reject non-NeoForge clients.
