@@ -5,7 +5,7 @@ use parking_lot::Mutex;
 use tokio::sync::mpsc;
 
 use crate::commands::BotAction;
-use crate::config::Config;
+use crate::config::{AuthMode, Config};
 
 pub type ActionTx = mpsc::UnboundedSender<BotAction>;
 pub type ActionRx = mpsc::UnboundedReceiver<BotAction>;
@@ -29,8 +29,17 @@ pub struct SharedState {
 
 impl Default for SharedState {
     fn default() -> Self {
+        // This default is only needed to satisfy azalea's Component trait.
+        // We always construct via BotState::new() with a real Config.
         Self {
-            config: Config::from_env(),
+            config: Config {
+                mc_host: "localhost".into(),
+                mc_port: 25566,
+                auth: AuthMode::Offline { username: "azalea_bot".into() },
+                openclaw_url: String::new(),
+                openclaw_token: String::new(),
+                http_listen_port: 3001,
+            },
             http_client: reqwest::Client::new(),
             action_sender: Mutex::new(None),
         }

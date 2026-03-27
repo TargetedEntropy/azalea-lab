@@ -4,7 +4,7 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 use crate::bridge::types::InboundCommand;
 use crate::commands::BotAction;
@@ -22,13 +22,17 @@ pub async fn run_server(shared: Arc<SharedState>) {
     let addr = format!("0.0.0.0:{port}");
     info!(addr, "Bot HTTP server listening");
 
-    let listener = tokio::net::TcpListener::bind(&addr)
-        .await
-        .expect("Failed to bind bot HTTP server");
+    let listener = match tokio::net::TcpListener::bind(&addr).await {
+        Ok(l) => l,
+        Err(e) => {
+            error!(addr, error = %e, "Failed to bind HTTP server — inbound commands disabled");
+            return;
+        }
+    };
 
-    axum::serve(listener, app)
-        .await
-        .expect("Bot HTTP server crashed");
+    if let Err(e) = axum::serve(listener, app).await {
+        error!(error = %e, "Bot HTTP server crashed");
+    }
 }
 
 async fn handle_action(

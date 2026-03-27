@@ -5,25 +5,49 @@ mod handler;
 mod state;
 
 use azalea::prelude::*;
-use tracing::info;
+use tracing::{error, info};
 
-use config::Config;
+use config::{AuthMode, Config};
 use state::BotState;
 
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
 
-    let config = Config::from_env();
+    let config = Config::load();
     let address = config.mc_address();
 
     info!(
         address = %address,
-        username = %config.bot_username,
+        auth = %match &config.auth {
+            AuthMode::Offline { username } => format!("offline ({})", username),
+            AuthMode::Microsoft { email } => format!("microsoft ({})", email),
+        },
         openclaw = %config.openclaw_url,
         http_port = config.http_listen_port,
         "Starting azalea-bot"
     );
+
+    // Create account based on auth mode
+    let account = match &config.auth {
+        AuthMode::Offline { username } => {
+            info!("Using offline auth");
+            Account::offline(username)
+        }
+        AuthMode::Microsoft { email } => {
+            info!(email, "Authenticating with Microsoft...");
+            match Account::microsoft(email).await {
+                Ok(acct) => {
+                    info!(username = %acct.username, "Microsoft auth successful");
+                    acct
+                }
+                Err(e) => {
+                    error!(error = %e, "Microsoft auth failed");
+                    std::process::exit(1);
+                }
+            }
+        }
+    };
 
     // Create the action channel (HTTP server -> event handler)
     let (action_tx, action_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -39,8 +63,6 @@ async fn main() {
     });
 
     // Connect to MC server (blocks forever)
-    let account = Account::offline(&bot_state.shared.config.bot_username);
-
     let _ = ClientBuilder::new()
         .set_handler(handler::handle)
         .set_state(bot_state)

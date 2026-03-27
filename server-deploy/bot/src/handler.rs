@@ -39,15 +39,15 @@ pub async fn handle(bot: Client, event: Event, state: BotState) -> anyhow::Resul
             };
 
             // Don't respond to our own messages
-            if sender.eq_ignore_ascii_case(&shared.config.bot_username) {
+            let my_name = bot.username();
+            if sender.eq_ignore_ascii_case(&my_name) {
                 return Ok(());
             }
 
             info!(sender = %sender, content = %content, "Chat received");
 
             // Check if the bot was mentioned by name
-            let bot_name_lower = shared.config.bot_username.to_lowercase();
-            if !content.to_lowercase().contains(&bot_name_lower) {
+            if !content.to_lowercase().contains(&my_name.to_lowercase()) {
                 return Ok(());
             }
 

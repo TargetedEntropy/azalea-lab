@@ -42,10 +42,8 @@ modpack-azalea-lab/
 │   │   └── patches/                       # Patched Rust crates
 │   │       ├── azalea/                    # Full azalea workspace (17 crates)
 │   │       └── simdnbt-0.6.1/            # Patched simdnbt dependency
-│   ├── patches/                           # Server-side NeoForge bypass patches
-│   │   ├── NegotiationPatch.java
-│   │   ├── ConfigInitPatch.java
-│   │   └── checkpatch-coremod-1.0.0.jar
+│   ├── patches/                           # Coremod JAR (all patches via ASM)
+│   │   └── azalea-bridge-2.0.0.jar
 │   └── pack/                              # Modpack files (extracted from zip by build.sh)
 │
 ├── repo/                                  # ORIGINAL WORKING DIRECTORY
@@ -58,14 +56,13 @@ modpack-azalea-lab/
 │   │   ├── NegotiationPatch.java
 │   │   ├── ConfigInitPatch.java
 │   │   ├── CheckPacketPatcher.java        # Alternative approach (unused)
-│   │   ├── checkpatch-coremod-1.0.0.jar   # Pre-built coremod
-│   │   ├── build-coremod.sh               # Script to rebuild the coremod JAR
-│   │   ├── coremod-jar/                   # Coremod source files
+│   │   ├── azalea-bridge-2.0.0.jar         # Built coremod (all patches)
+│   │   ├── build-coremod-v2.sh            # Script to rebuild the coremod JAR
+│   │   ├── coremod-jar-v2/                # Coremod source
 │   │   │   ├── META-INF/coremods.json
 │   │   │   ├── META-INF/MANIFEST.MF
 │   │   │   ├── META-INF/neoforge.mods.toml
-│   │   │   ├── checkPacketTransformer.js
-│   │   │   └── checkpacket_patch.js       # Active coremod transformer
+│   │   │   └── azalea_bridge.js           # All ASM transformers
 │   │   └── DynamicOdyssey-Server-2.7.0/   # Extracted modpack (original)
 │   ├── docker-compose.yml
 │   ├── scripts/run_bot.sh
@@ -233,57 +230,47 @@ work on or operate this project.
 
 ---
 
-## The Three Server Patches (Why They're Needed)
+## The Azalea Bridge Coremod
+
+A single NeoForge coremod JAR (`azalea-bridge-2.0.0.jar`) dropped into the `mods/`
+folder handles all client compatibility via ASM bytecode transformation at class-load
+time. **No NeoForge jar modifications or .patch files needed.**
 
 NeoForge 21.1.219 has three layers of validation that reject non-NeoForge clients.
-Each patch disables one layer:
+The coremod disables each one:
 
-### 1. NegotiationPatch.java
+### Patch 1: NetworkComponentNegotiator.negotiate()
 
-**What it patches**: `net.neoforged.neoforge.network.negotiation.NetworkComponentNegotiator`
+**Problem**: NeoForge requires clients to negotiate mod channels. The bot doesn't
+speak the NeoForge channel protocol.
 
-**Problem**: NeoForge requires clients to negotiate mod channels during connection.
-The bot doesn't speak the NeoForge channel protocol, so negotiation fails.
+**Fix**: Replaces `negotiate()` body via ASM to always return
+`new NegotiationResult(List.of(), true, Map.of())`.
 
-**Fix**: Replaces the `negotiate()` method to always return success with an empty
-component list, letting any client through.
+### Patch 2: ConfigurationInitialization.configureModdedClient()
 
-**Applied**: At Docker build time — compiled and injected into
-`neoforge-{VERSION}-universal.jar` via `jar uf`.
+**Problem**: NeoForge runs `RegistryDataMapNegotiation`, `CheckExtensibleEnums`,
+and `CheckFeatureFlags` tasks that fail for non-NeoForge clients.
 
-### 2. ConfigInitPatch.java
+**Fix**: Replaces the entire method body with `RETURN`, skipping all modded
+configuration tasks. The bot handles `c:version` and `c:register` in its own
+protocol layer.
 
-**What it patches**: `net.neoforged.neoforge.network.ConfigurationInitialization`
+### Patch 3: NetworkRegistry.checkPacket()
 
-**Problem**: During the configuration phase, NeoForge runs three checks that fail
-for non-NeoForge clients:
-- `RegistryDataMapNegotiation` — mod registry sync
-- `CheckExtensibleEnums` — extensible enum validation
-- `CheckFeatureFlags` — feature flag verification
+**Problem**: Mods send custom payloads to all clients. `checkPacket()` throws
+`UnsupportedOperationException` for unregistered payload types.
 
-**Fix**: Replaces the class to skip those three tasks. Still runs `SyncRegistries`,
-`CommonVersionTask`, `CommonRegisterTask`, and `SyncConfig` if the client supports them.
+**Fix**: Replaces `ATHROW` instructions with `POP + RETURN`, silently ignoring
+unknown packets instead of disconnecting.
 
-**Applied**: Same as above — compiled and injected at Docker build time.
+### Building / Rebuilding the Coremod
 
-### 3. checkpatch-coremod-1.0.0.jar (ASM Coremod)
+**Source**: `repo/server/coremod-jar-v2/`
+**Rebuild**: `bash repo/server/build-coremod-v2.sh`
 
-**What it patches**: `net.neoforged.neoforge.network.registration.NetworkRegistry.checkPacket()`
-
-**Problem**: Even after passing negotiation and configuration, mods send custom
-payloads to all connected clients. `checkPacket()` throws
-`UnsupportedOperationException` for any payload type the client didn't register,
-which disconnects the bot.
-
-**Fix**: A NeoForge coremod (JavaScript + ASM bytecode transformation) that replaces
-the `ATHROW` instructions in `checkPacket()` with `POP + RETURN`, making it a no-op
-for unrecognized packets.
-
-**Applied**: At runtime — the JAR sits in the `mods/` folder and NeoForge's coremod
-loader executes the JavaScript transformer before the class is loaded.
-
-**Coremod source**: `repo/server/coremod-jar/`
-**Rebuild**: `bash repo/server/build-coremod.sh`
+The output `azalea-bridge-2.0.0.jar` goes into `server-deploy/patches/` and is
+copied into the Docker image's `mods/` folder during build.
 
 ---
 
@@ -339,17 +326,56 @@ bot/src/
 Future actions (teleport, look, etc.) will be added as new variants in
 `commands::BotAction` and new match arms in `bridge::inbound::parse_action`.
 
-### Environment Variables
+### CLI Flags, Environment Variables, and Config File
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `MC_HOST` | `localhost` | Minecraft server host |
-| `MC_PORT` | `25566` | Minecraft server port |
-| `BOT_USERNAME` | `azalea_bot` | Bot's in-game name |
-| `OPENCLAW_URL` | `http://127.0.0.1:18789` | OpenClaw gateway URL |
-| `OPENCLAW_TOKEN` | *(empty)* | Bearer token for OpenClaw auth |
-| `BOT_HTTP_PORT` | `3001` | Port for bot's inbound HTTP server |
-| `RUST_LOG` | *(unset)* | Log level (e.g., `azalea_bot=info`) |
+Configuration priority: **CLI flags > env vars > config file > defaults**
+
+**CLI flags** (run `./run_bot.sh --help` for full list):
+```
+-s, --server <HOST>       MC server hostname
+-p, --port <PORT>         MC server port
+-u, --username <NAME>     Offline mode username
+-e, --email <EMAIL>       Microsoft auth email (enables online mode)
+-c, --config <PATH>       Path to TOML config file
+    --openclaw-url <URL>  OpenClaw gateway URL
+    --openclaw-token <T>  OpenClaw bearer token
+    --http-port <PORT>    Bot HTTP server port
+```
+
+**Environment variables** (same as CLI, picked up automatically):
+`MC_HOST`, `MC_PORT`, `BOT_USERNAME`, `MS_EMAIL`, `OPENCLAW_URL`,
+`OPENCLAW_TOKEN`, `BOT_HTTP_PORT`, `BOT_CONFIG`, `RUST_LOG`
+
+**Config file** (`azalea-bot.toml`, `config.toml`, or `~/.config/azalea-bot/config.toml`):
+```toml
+[server]
+host = "localhost"
+port = 25566
+
+[auth]
+mode = "offline"        # "offline" or "microsoft"
+username = "azalea_bot" # for offline mode
+# email = "user@example.com"  # for microsoft mode
+
+[openclaw]
+url = "http://127.0.0.1:18789"
+# token = "bearer-token"
+
+[bot]
+http_port = 3001
+```
+
+See `bot/config.example.toml` for a full template.
+
+### Authentication
+
+**Offline mode** (default): `./run_bot.sh -u azalea_bot`
+- No Microsoft account needed, works with `online-mode=false` servers
+
+**Microsoft auth**: `./run_bot.sh -e user@example.com`
+- Uses device-code OAuth flow (prints a URL + code to visit)
+- Tokens cached at `~/.minecraft/azalea-auth.json` — subsequent runs skip auth
+- Required for `online-mode=true` servers
 
 ### Why Patched Forks?
 
@@ -409,11 +435,10 @@ AI agent gateway that bridges Discord (and other channels) to LLMs.
 
 If you need to modify the coremod (e.g., to patch a different method):
 
-1. Edit files in `repo/server/coremod-jar/`:
-   - `META-INF/coremods.json` — target class mapping
-   - `checkpacket_patch.js` — the active ASM transformer
-2. Rebuild: `bash repo/server/build-coremod.sh`
-3. Copy to server: the build script outputs `checkpatch-coremod-1.0.0.jar`
+1. Edit `repo/server/coremod-jar-v2/azalea_bridge.js` — all ASM transformers are here
+2. Rebuild: `bash repo/server/build-coremod-v2.sh`
+3. Copy to deploy: `cp repo/server/azalea-bridge-2.0.0.jar server-deploy/patches/`
+4. Rebuild Docker: `cd server-deploy && docker compose build`
 
 See `repo/COREMOD_GUIDE.md` and `repo/COREMOD_JAVASCRIPT_API.md` for the full
 ASM/JavaScript API reference.
@@ -437,9 +462,14 @@ docker exec azalea-mc-server cat /server/logs/latest.log
 
 ### Verify coremod loaded
 ```bash
-docker logs azalea-mc-server 2>&1 | grep COREMOD
+docker logs azalea-mc-server 2>&1 | grep AzaleaBridge
 ```
-Expected: `[CheckPacketPatch] Replaced ATHROW #1 with POP+RETURN`
+Expected:
+```
+[AzaleaBridge] negotiate() now returns empty success
+[AzaleaBridge] configureModdedClient() replaced with RETURN
+[AzaleaBridge] checkPacket(server): replaced 1 throw(s)
+```
 
 ### Run the bot against a different server
 ```bash
@@ -461,8 +491,9 @@ curl -X POST http://localhost:3001/actions \
 
 ## Verified Working
 
-### DynamicOdyssey 2.26.0 — Full OpenClaw integration (2026-03-26)
-- Server: NeoForge 21.1.219, 328 mods
+### DynamicOdyssey 2.26.0 — Coremod-only + OpenClaw integration (2026-03-27)
+- Server: NeoForge 21.1.219, 328 mods, **unmodified NeoForge jar**
+- Patches: Single `azalea-bridge-2.0.0.jar` coremod in mods/ (no .patch files)
 - Bot: Stays connected, receives Tick events, processes chat
 - HTTP API: POST to `/actions` successfully sends chat in MC
 - Server logs confirmed: login, chat from bot via API, persistent connection

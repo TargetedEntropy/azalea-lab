@@ -15,6 +15,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_SERVER="$SCRIPT_DIR/../repo/server"
 
+echo $SCRIPT_DIR
+
 # --- Handle server zip argument ---
 if [ "${1:-}" != "" ]; then
     SERVER_ZIP="$(realpath "$1")"
@@ -51,12 +53,10 @@ fi
 NEOFORGE_VERSION=$(basename "$INSTALLER_JAR" | sed 's/neoforge-\(.*\)-installer\.jar/\1/')
 echo "    NeoForge version: $NEOFORGE_VERSION"
 
-# --- Patches ---
+# --- Coremod (single JAR handles all patches via ASM) ---
 mkdir -p "$SCRIPT_DIR/patches"
-cp "$REPO_SERVER/NegotiationPatch.java"          "$SCRIPT_DIR/patches/"
-cp "$REPO_SERVER/ConfigInitPatch.java"            "$SCRIPT_DIR/patches/"
-cp "$REPO_SERVER/checkpatch-coremod-1.0.0.jar"   "$SCRIPT_DIR/patches/"
-echo "    patches/ OK"
+cp "$REPO_SERVER/azalea-bridge-2.0.0.jar" "$SCRIPT_DIR/patches/"
+echo "    patches/azalea-bridge-2.0.0.jar OK"
 
 # --- Write .env for docker-compose (NeoForge version) ---
 cat > "$SCRIPT_DIR/.env" <<EOF
